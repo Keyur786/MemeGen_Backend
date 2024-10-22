@@ -1,28 +1,27 @@
-# api/views.py
-from django.views.decorators.csrf import csrf_exempt
 import re
 import nltk
 import pandas as pd
 from django.http import JsonResponse
-from django.views import View
 from nltk.corpus import stopwords
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-from django.shortcuts import render
-
-def home(request):
-    return render(request, 'home.html')
-
-# Load the dataset globally
-jokes_df = pd.read_excel("/Users/keyur/meme_generator/memes/assets/dataset copy.xlsx")  # Update with your file path
-joke_corpus = dict(zip(jokes_df["Input"], jokes_df["Response"]))
 
 # Download NLTK resources
 nltk.download("punkt")
 nltk.download("stopwords")
 
-# Define a function to preprocess text
+# Load the dataset (ensure the path is correct or load it globally)
+jokes_df = pd.read_excel("/Users/keyur/meme_generator/memes/assets/dataset copy.xlsx")
+
+# Ensure NaN values in 'text_corrected' column are handled
+jokes_df['text_corrected'] = jokes_df['Response'].fillna('')
+
+# Create a list for text_corrected values
+joke_corpus = jokes_df["Response"].tolist()
+
+# Function to preprocess text
 def preprocess(text):
+    if not isinstance(text, str):
+        text = str(text)
     text = re.sub(r'[^a-zA-Z]', ' ', text)
     text = text.lower()
     tokens = nltk.word_tokenize(text)
@@ -30,25 +29,35 @@ def preprocess(text):
     return " ".join(tokens)
 
 # Preprocess the joke corpus
-processed_corpus = [preprocess(question) for question in joke_corpus.keys()]
+processed_corpus = [preprocess(joke) for joke in joke_corpus if joke.strip()]
 
 # Create TF-IDF vectorizer
 tfidf_vectorizer = TfidfVectorizer()
 tfidf_matrix = tfidf_vectorizer.fit_transform(processed_corpus)
 
-class MemeGenerator(View):
-    @method_decorator(csrf_exempt)
-    def post(self, request):
-        user_input = request.POST.get("input")
-        query = preprocess(user_input)
-        query_vec = tfidf_vectorizer.transform([query])
-        cosine_similarities = cosine_similarity(query_vec, tfidf_matrix).flatten()
-        top_n_indices = cosine_similarities.argsort()[-10:][::-1]
+# Function to get top similar jokes
+def get_top_similar_memes(query, top_n=10):
+    query_tokens = preprocess(query).split()
 
-        top_similar_jokes = [
-            {"question": list(joke_corpus.keys())[i], "response": joke_corpus[list(joke_corpus.keys())[i]]}
-            for i in top_n_indices
-        ]
+    matched_entries = [
+        key for key in joke_corpus if all(token in preprocess(key) for token in query_tokens)
+    ]
 
-        return JsonResponse(top_similar_jokes, safe=False)
+    if matched_entries:
+        return matched_entries[:top_n]
 
+    matched_entries_any = [
+        key for key in joke_corpus if any(token in preprocess(key) for token in query_tokens)
+    ]
+
+    return matched_entries_any[:top_n]
+
+# Django view to handle requests
+def get_memes(request):
+    if request.method == 'GET':
+        user_question = request.GET.get('query', '')
+        if user_question:
+            top_jokes = get_top_similar_memes(user_question)
+            return JsonResponse({'question': user_question, 'suggestions': top_jokes}, status=200)
+        else:
+            return JsonResponse({'error': 'Query parameter missing'}, status=400)
