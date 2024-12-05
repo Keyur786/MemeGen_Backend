@@ -1,5 +1,10 @@
 from django.contrib import admin
-from .models import MemeTemplate,MemeImage
+from .models import MemeImage
 
-admin.site.register(MemeTemplate)
-admin.site.register(MemeImage)
+
+
+class MemeImageAdmin(admin.ModelAdmin):
+    list_display = ['image_file']
+
+admin.site.register(MemeImage, MemeImageAdmin)
+
